@@ -1,5 +1,9 @@
 # DashGui
 
+## Raspberry Pi
+
+* Model: Raspberry Pi 3 Model B+
+
 ## Virtual Environment Setup
 
 1) Have python installed on your machine
