@@ -13,4 +13,4 @@ In the command terminal
     * Mac: `source .venv/bin/activate`
     * Windows: `.venv\Scripts\activate.bat`
 4) install required libraries to run
-    * `pip install requirements.txt`
+    * `pip install -r requirements.txt`
