@@ -68,6 +68,7 @@ class CANDashboardWorker(QThread):
 
                 # Process the received CAN message based on its arbitration ID
                 if message.arbitration_id == ID_MOTOR_STATS:
+                    # speed is two bytes combined into one 16-bit number and scaled by 0.1
                     speed = ((message.data[0] << 8) | message.data[1]) * 0.1
                     self.motor_updated.emit(speed, message.data[2], message.data[3], message.data[4])
                 elif message.arbitration_id == ID_BATTERY_STATS:
@@ -104,7 +105,7 @@ class DashboardWindow(QMainWindow):
         self.watchdog_timer.timeout.connect(self.check_staleness)
         self.watchdog_timer.start(100)    # check 10x per second
 
-        self.worker = CANDashboardWorker()
+        self.worker = CANDashboardWorker() # Worker Thread
         self.worker.motor_updated.connect(self.handle_motor)
         self.worker.battery_updated.connect(self.handle_battery)
         self.worker.error_raised.connect(self.handle_error)
@@ -162,8 +163,10 @@ class DashboardWindow(QMainWindow):
     @pyqtSlot(float, int, int, int)
     def handle_motor(self, speed, temp, throttle, mode):
         """Runs in the GUI thread whenever the worker emits new motor telemetry."""
+        # Watchdog Flags
         self.last_motor_rx = time.monotonic() # update the last received time for motor stats
         self.motor_stale = False # reset the stale flag since we just received a message
+        # Updating GUI
         self.lbl_speed_val.setText(f"{speed:.0f}")
         self.lbl_temp_val.setText(f"{temp}°C")
         self.lbl_temp_val.setStyleSheet("color: " + COLOR_THERMAL + ";")
@@ -175,8 +178,10 @@ class DashboardWindow(QMainWindow):
     @pyqtSlot(int)
     def handle_battery(self, soc):
         """Runs in the GUI thread whenever the worker emits new battery telemetry."""
+        # Watchdog Flags
         self.last_battery_rx = time.monotonic() # update the last received time for battery stats
         self.battery_stale = False # reset the stale flag since we just received a message
+        # Updating GUI
         self.progress_soc.setFormat("%p%") # resets the format to percentage
         self.progress_soc.setValue(soc)
 
