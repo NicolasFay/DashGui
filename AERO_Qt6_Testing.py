@@ -12,11 +12,17 @@ import time
 CAN_INTERFACE = 'virtual'
 CAN_CHANNEL = 'dashboard_test'
 
+'''
+TODO: Find out how often the motor controller and BMS actually send 0x100 and 0x101. 
+values are placeholders, and the timeout should be roughly 
+3-5x the real period so one dropped frame doesnt blank the display.
+'''
+
 # Arbitration IDs of the messages this dashboard listens for
 ID_MOTOR_STATS = 0x100
 ID_BATTERY_STATS = 0x101
 
-MOTOR_TIMEOUT_S = 0.5     # placeholder: should be 3-5x the real message period
+MOTOR_TIMEOUT_S = 0.5     # placeholder
 BATTERY_TIMEOUT_S = 2.0   # placeholder
 
 # Drive modes: value -> (label, color)
