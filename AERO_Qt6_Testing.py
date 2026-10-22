@@ -37,11 +37,15 @@ DRIVE_MODES = {
 COLOR_TITLE = "#8A8A9F"
 COLOR_MUTED = "#707080"
 COLOR_THERMAL = "#FF5555"
+COLOR_ERROR = "#FF0000"
 
+SCREEN_WIDTH = 480
+SCREEN_HEIGHT = 320
 
 # While testing on the virtual bus, press M to cycle modes locally.
 # Set to False once the real mode comes in over CAN.
 LOCAL_MODE_TEST = True
+DEBUG_BORDERS = False
 
 
 class CANDashboardWorker(QThread):
@@ -119,23 +123,25 @@ class DashboardWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("EV Digital Instrument Cluster")
-        self.setFixedSize(480, 320)
+        self.setFixedSize(SCREEN_WIDTH, SCREEN_HEIGHT)
 
         central_widget = QWidget()
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(40, 20, 40, 30)
+        main_layout.setContentsMargins(30, 20, 40, 30)
 
         # ---- Top row: speedometer (center) + drive mode (right) ----
         top_row = QHBoxLayout()
 
+        SIDE_WIDTH = 100
         # build individual blocks
-        speed_layout = self.build_speed_block()
-        mode_block = self.build_mode_block()
+        error_block = self.wrap_fixed(self.build_error_block(), SIDE_WIDTH)
+        speed_block = self.wrap_stretch(self.build_speed_block())
+        mode_block = self.wrap_fixed(self.build_mode_block(), SIDE_WIDTH)
 
-        # add them to the top row with stretch factors to control sizing
-        top_row.addStretch(1)
-        top_row.addLayout(speed_layout, stretch=3)
-        top_row.addLayout(mode_block, stretch=1)
+        # add them to the top row, speed stretches to fill remaining space
+        top_row.addWidget(error_block)
+        top_row.addWidget(speed_block, stretch=1)
+        top_row.addWidget(mode_block)
 
         # add top row to main layout
         main_layout.addLayout(top_row)
@@ -145,15 +151,15 @@ class DashboardWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
 
         # Build individual blocks
-        thermal_block = self.build_thermal_block()
-        battery_block = self.build_battery_block()
-        throttle_block = self.build_throttle_block()
+        battery_block = self.wrap_stretch(self.build_battery_block())
+        thermal_block = self.wrap_stretch(self.build_thermal_block())
+        throttle_block = self.wrap_stretch(self.build_throttle_block())
 
         # add them all to bottom_layout with style
-        bottom_layout.addLayout(battery_block, stretch=3)
+        bottom_layout.addWidget(battery_block, stretch=3)
         bottom_layout.addSpacing(50)
-        bottom_layout.addLayout(thermal_block, stretch=1)
-        bottom_layout.addLayout(throttle_block, stretch=1)
+        bottom_layout.addWidget(thermal_block, stretch=1)
+        bottom_layout.addWidget(throttle_block, stretch=1)
 
         # add bottom row to main layout
         main_layout.addLayout(bottom_layout)
@@ -193,8 +199,7 @@ class DashboardWindow(QMainWindow):
 
     @pyqtSlot(str)
     def handle_error(self, err_msg):
-        """Worker reported a failure; for now just log it to stderr."""
-        print(f"[CRITICAL] {err_msg}", file=sys.stderr)
+        self.error_value.setText(f"{err_msg}")
 
     def keyPressEvent(self, event):
         """Test hook: M cycles ECO -> NORMAL -> SPORT while LOCAL_MODE_TEST is on."""
@@ -226,8 +231,19 @@ class DashboardWindow(QMainWindow):
             self.show_battery_no_data()
 
     #----------------- UI Block Builders -----------------
+    def build_error_block(self):
+            error_block = QVBoxLayout()
+    
+            self.error_value = QLabel("Default ERROR")
+            self.error_value.setFont(QFont("Courier", 14))
+            self.error_value.setStyleSheet("color: " + COLOR_ERROR + ";")
+            self.error_value.setWordWrap(True)
+    
+            error_block.addWidget(self.error_value)
+            return error_block
+    
     def build_speed_block(self):
-        speed_layout = QVBoxLayout()
+        speed_block = QVBoxLayout()
         self.lbl_speed_val = QLabel("0")
         self.lbl_speed_val.setFont(QFont("sans-serif", 90, QFont.Weight.Bold))
         self.lbl_speed_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -237,9 +253,9 @@ class DashboardWindow(QMainWindow):
         lbl_speed_unit.setStyleSheet("color: " + COLOR_MUTED + ";")
         lbl_speed_unit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        speed_layout.addWidget(self.lbl_speed_val)
-        speed_layout.addWidget(lbl_speed_unit)
-        return speed_layout
+        speed_block.addWidget(self.lbl_speed_val)
+        speed_block.addWidget(lbl_speed_unit)
+        return speed_block
 
     def build_mode_block(self):
         mode_block = QVBoxLayout()
@@ -299,7 +315,32 @@ class DashboardWindow(QMainWindow):
         throttle_block.addWidget(throttle_title)
         throttle_block.addWidget(self.throttle_value)
         return throttle_block
+
+    #----------------- Block Helpers ------------------
+    def wrap_fixed(self, layout, width):
+        """Put a layout in a fixed-width container so side blocks are symmetric."""
+        layout.setContentsMargins(0, 0, 0, 0)
+        container = QWidget()
+        container.setLayout(layout)
+        container.setFixedWidth(width)
+        self.debug_border(container)
+        return container
+
+    def wrap_stretch(self, layout):
+        """Put a layout in a QWidget to add style if needed, 
+        currently doesnt do much except debug borders"""
+        layout.setContentsMargins(0, 0, 0, 0)
+        container = QWidget()
+        container.setLayout(layout)
+        self.debug_border(container)
+        return container
     
+    def debug_border(self, widget):
+        """Outline a container so layout problems are visible. No-op when off."""
+        if DEBUG_BORDERS:
+            widget.setObjectName("dbgBox")
+            widget.setStyleSheet("QWidget#dbgBox { border: 1px solid #FF00FF; }")
+            
     #----------------- No Data Handlers -----------------
     def show_motor_no_data(self):
         self.lbl_speed_val.setText("--")
