@@ -1,7 +1,9 @@
 import sys
 import can
+import time
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QShortcut, QKeySequence
 
 import AERO_Qt6_Testing as dashmod
 from AERO_Qt6_Testing import (DashboardWindow, CAN_INTERFACE, CAN_CHANNEL,
@@ -11,6 +13,21 @@ from AERO_Qt6_Testing import (DashboardWindow, CAN_INTERFACE, CAN_CHANNEL,
 # Make the dashboard take its mode from CAN instead of the M-key test hook
 dashmod.LOCAL_MODE_TEST = False
 
+"""NOTE: Test the dashboard using special key presses that simulate different features/problems
+M:  Toggle mode             Switches drive mode of the car (Normal, ECO, SPORT)
+1:  Toggle motor silent     Speed, temp, throttle and mode go to “--” after the timeout. Battery keeps updating. Press again and everything recovers.
+2:  Toggle battery silent   Only the SOC bar goes to “--”.
+3:  Both silent	            Everything blanks.
+4:  0.3 s motor gap	        Display does not blank (under the 0.5 s timeout).
+5:  0.8 s motor gap	        Blanks, then recovers on its own.
+6:  Malformed frame	        Worker thread dies, the error label appears, and the watchdog blanks everything.
+7:  Restart worker	        Data resumes.
+8:  Toggle_mode_source      Switches where the mode comes from (CAN vs test key)
+
+
+
+
+"""
 # (speed mph, soc %, motor temp C, throttle %, mode)
 CASES = [
     (0,   100,   0,   0, MODE_NORMAL),
@@ -22,12 +39,15 @@ CASES = [
 ]
 
 
-def send(bus, speed, soc, temp, throttle, mode):
-    raw = int(round(speed * 10))
-    bus.send(can.Message(arbitration_id=ID_MOTOR_STATS,
+def send(bus, speed, soc, temp, throttle, mode, motor=True, battery=True):
+    if motor:
+
+        raw = int(round(speed * 10))
+        bus.send(can.Message(arbitration_id=ID_MOTOR_STATS,
                          data=[raw >> 8, raw & 0xFF, temp, throttle, mode],
                          is_extended_id=False))
-    bus.send(can.Message(arbitration_id=ID_BATTERY_STATS,
+    if battery:
+        bus.send(can.Message(arbitration_id=ID_BATTERY_STATS,
                          data=[soc], is_extended_id=False))
 
 
@@ -43,7 +63,7 @@ def main():
     dash.show()
 
     bus = can.interface.Bus(interface=CAN_INTERFACE, channel=CAN_CHANNEL)
-    app.aboutToQuit.connect(bus.shutdown)
+    #app.aboutToQuit.connect(bus.shutdown)
 
     failures = []
 
@@ -89,6 +109,10 @@ def main():
     state = {"t": 0.0}
     MODE_ORDER = [MODE_ECO, MODE_NORMAL, MODE_SPORT]
 
+    def cleanup():
+        sweep_timer.stop()
+        bus.shutdown()
+
     def tick():
         t = state["t"]
         speed = 60 * tri(t, 10)                 # 0-60 mph, 10 s cycle
@@ -96,14 +120,61 @@ def main():
         temp = int(20 + 90 * tri(t, 20))        # 20-110 C, 20 s cycle
         throttle = int(100 * tri(t, 6))         # 0-100 %, 6 s cycle
         mode = MODE_ORDER[int(t // 5) % len(MODE_ORDER)]   # new mode every 5 s
-        send(bus, speed, soc, temp, throttle, mode)
+        send(bus, speed, soc, temp, throttle, mode, 
+             motor=not silent("motor_until"), 
+             battery= not silent("battery_until"))
         state["t"] += 0.05
 
     def start_sweep():
+        dashmod.LOCAL_MODE_TEST = True # allows M key to work
         sweep_timer.timeout.connect(tick)
         sweep_timer.start(50)
 
+        # ---------- Fault injection (keys 1-7, active during the sweep) ----------
+    faults = {"motor_until": 0.0, "battery_until": 0.0}
+
+    def silent(name):
+        return time.monotonic() < faults[name]
+
+    def toggle(name):
+        faults[name] = 0.0 if silent(name) else float("inf")
+        print(f"[FAULT] {name}: {'SILENT' if silent(name) else 'sending again'}")
+
+    def drop(name, seconds):
+        faults[name] = time.monotonic() + seconds
+        print(f"[FAULT] {name}: dropping for {seconds}s")
+
+    def send_malformed():
+        print("[FAULT] sending 2-byte motor frame (expects 5)")
+        bus.send(can.Message(arbitration_id=ID_MOTOR_STATS,
+                             data=[0x01, 0x02], is_extended_id=False))
+
+    def toggle_mode_source():
+        dashmod.LOCAL_MODE_TEST = not dashmod.LOCAL_MODE_TEST
+        print(f"[TEST] mode source: {'M key' if dashmod.LOCAL_MODE_TEST else 'CAN'}")
+
+    def restart_worker():
+        if dash.worker.isRunning():
+            print("[FAULT] worker already running")
+        else:
+            print("[FAULT] restarting worker thread")
+            dash.worker.start()
+
+    KEYS = {
+        "1": lambda: toggle("motor_until"),          # motor goes silent / returns
+        "2": lambda: toggle("battery_until"),        # battery goes silent / returns
+        "3": lambda: (toggle("motor_until"), toggle("battery_until")),
+        "4": lambda: drop("motor_until", 0.3),       # short gap, should NOT blank
+        "5": lambda: drop("motor_until", 0.8),       # long gap, should blank, then recover
+        "6": send_malformed,                         # kills the worker thread
+        "7": restart_worker,
+        "8": toggle_mode_source
+    }
+    for key, fn in KEYS.items():
+        QShortcut(QKeySequence(key), dash).activated.connect(fn)
+
     # Give the worker thread time to open its bus before sending
+    app.aboutToQuit.connect(cleanup)
     QTimer.singleShot(500, lambda: step(0))
     sys.exit(app.exec())
 
