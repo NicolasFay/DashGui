@@ -24,6 +24,7 @@ ID_BATTERY_STATS = 0x101
 
 MOTOR_TIMEOUT_S = 0.5     # placeholder
 BATTERY_TIMEOUT_S = 2.0   # placeholder
+RETRY_DELAY_MS = 2000 
 
 # Drive modes: value -> (label, color)
 # The numeric values are what arrives on the bus; the tuple is what we display.
@@ -55,7 +56,7 @@ class CANDashboardWorker(QThread):
     widgets directly; it only emits signals, which Qt delivers safely to the
     GUI thread.
     """
-
+    bus_opened = pyqtSignal()
     motor_updated = pyqtSignal(float, int, int, int)   # speed, temp, throttle, mode
     battery_updated = pyqtSignal(int)                  # soc
     error_raised = pyqtSignal(str)
@@ -67,27 +68,35 @@ class CANDashboardWorker(QThread):
     def run(self):
         self.running = True
         bus = None
+        
         try:
             bus = can.interface.Bus(interface=CAN_INTERFACE, channel=CAN_CHANNEL, bitrate=500000)
+            self.bus_opened.emit()
 
             while self.running:
                 # Short timeout so the loop can notice running=False quickly
                 message = bus.recv(timeout=0.05)
                 if message is None:
                     continue
-
+                     
                 # Process the received CAN message based on its arbitration ID
                 if message.arbitration_id == ID_MOTOR_STATS:
+                    if len(message.data) < 5:
+                        continue          # bad frame: skip it, keep the thread alive
+
                     # speed is two bytes combined into one 16-bit number and scaled by 0.1
                     speed = ((message.data[0] << 8) | message.data[1]) * 0.1
                     self.motor_updated.emit(speed, message.data[2], message.data[3], message.data[4])
                 elif message.arbitration_id == ID_BATTERY_STATS:
+                    if len(message.data) < 1:
+                        continue
                     self.battery_updated.emit(message.data[0])
 
         except Exception as e:
             # Any failure (bus won't open, bad frame, etc.) ends the thread
             # and is reported to the GUI as a string.
-            self.error_raised.emit(f"CAN Interface Error: {str(e)}")
+            self.error_raised.emit("CAN FAULT")
+            print(f"CAN FAULT: {str(e)}", file=sys.stderr)
         finally:
             if bus:
                 bus.shutdown()
@@ -115,10 +124,13 @@ class DashboardWindow(QMainWindow):
         self.watchdog_timer.timeout.connect(self.check_staleness)
         self.watchdog_timer.start(100)    # check 10x per second
 
+        self.closing = False # flag for if the software is closing
+
         self.worker = CANDashboardWorker() # Worker Thread
         self.worker.motor_updated.connect(self.handle_motor)
         self.worker.battery_updated.connect(self.handle_battery)
         self.worker.error_raised.connect(self.handle_error)
+        self.worker.bus_opened.connect(self.clear_error)
         self.worker.start()
 
     def init_ui(self):
@@ -165,6 +177,7 @@ class DashboardWindow(QMainWindow):
         main_layout.addLayout(bottom_layout)
         self.setCentralWidget(central_widget)
 
+    #-------------- Dashboard options -------------
     def set_mode(self, mode):
         """Show the given drive mode; unknown values display as a grey '--'."""
         text, color = DRIVE_MODES.get(mode, ("--", "#8A8A9F"))
@@ -172,6 +185,7 @@ class DashboardWindow(QMainWindow):
         self.mode_value.setText(text)
         self.mode_value.setStyleSheet(f"color: {color};")
 
+    #---------------- PyQT slots ---------------
     @pyqtSlot(float, int, int, int)
     def handle_motor(self, speed, temp, throttle, mode):
         """Runs in the GUI thread whenever the worker emits new motor telemetry."""
@@ -201,6 +215,11 @@ class DashboardWindow(QMainWindow):
     def handle_error(self, err_msg):
         self.error_value.setText(f"{err_msg}")
 
+    @pyqtSlot()
+    def clear_error(self):
+        self.error_value.clear()
+
+    #--------------- Life Cycle Functions -------------
     def keyPressEvent(self, event):
         """Test hook: M cycles ECO -> NORMAL -> SPORT while LOCAL_MODE_TEST is on."""
         if LOCAL_MODE_TEST and event.key() == Qt.Key.Key_M:
@@ -210,9 +229,11 @@ class DashboardWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Stop the CAN thread cleanly before the window closes."""
+        self.closing = True
         self.worker.stop()
         event.accept()
 
+    #----------------- Error Handler Functions
     def check_staleness(self):
         now = time.monotonic()
 
@@ -230,11 +251,25 @@ class DashboardWindow(QMainWindow):
             self.battery_stale = True
             self.show_battery_no_data()
 
+    def schedule_retry(self):
+        """will retry the worker after the delay time if app is still open"""
+        if not self.closing:
+            QTimer.singleShot(RETRY_DELAY_MS, self.retry_worker)
+
+    def retry_worker(self):
+        """retry starting the worker, check that thread isnt running and that app isnt closing"""
+        if self.closing:
+            return
+        if self.worker.isRunning():
+            self.schedule_retry()      # thread hasn't finished yet, check again later
+        else:
+            self.worker.start()
+
     #----------------- UI Block Builders -----------------
     def build_error_block(self):
             error_block = QVBoxLayout()
     
-            self.error_value = QLabel("Default ERROR")
+            self.error_value = QLabel("")
             self.error_value.setFont(QFont("Courier", 14))
             self.error_value.setStyleSheet("color: " + COLOR_ERROR + ";")
             self.error_value.setWordWrap(True)
@@ -276,7 +311,7 @@ class DashboardWindow(QMainWindow):
 
     def build_battery_block(self):
         battery_block = QVBoxLayout()
-        lbl_bat = QLabel("BATTERY PACK STATE OF CHARGE")
+        lbl_bat = QLabel("BATTERY %") #battery pack state of charge
         lbl_bat.setFont(QFont("sans-serif", 9, QFont.Weight.Bold))
         lbl_bat.setStyleSheet("color: " + COLOR_TITLE + ";")
 
