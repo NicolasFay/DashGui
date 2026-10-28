@@ -79,7 +79,7 @@ def main():
             "mode_color": True,
         }
         actual = {
-            "speed": dash.lbl_speed_val.text(),
+            "speed": dash.speed_val.text(),
             "soc": dash.progress_soc.value(),
             "temp": dash.lbl_temp_val.text(),
             "throttle": dash.throttle_value.text(),

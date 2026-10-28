@@ -39,14 +39,20 @@ COLOR_TITLE = "#8A8A9F"
 COLOR_MUTED = "#707080"
 COLOR_THERMAL = "#FF5555"
 COLOR_ERROR = "#FF0000"
+COLOR_STALE = "#FFC400"
 
 SCREEN_WIDTH = 480
 SCREEN_HEIGHT = 320
 
+CONTENT_MARGIN_LEFT = 20
+CONTENT_MARGIN_TOP = 20
+CONTENT_MARGIN_RIGHT = 20
+CONTENT_MARGIN_BOTTOM = 20
+
 # While testing on the virtual bus, press M to cycle modes locally.
 # Set to False once the real mode comes in over CAN.
 LOCAL_MODE_TEST = True
-DEBUG_BORDERS = False
+DEBUG_BORDERS = True
 
 
 class CANDashboardWorker(QThread):
@@ -68,7 +74,7 @@ class CANDashboardWorker(QThread):
     def run(self):
         self.running = True
         bus = None
-        
+
         try:
             bus = can.interface.Bus(interface=CAN_INTERFACE, channel=CAN_CHANNEL, bitrate=500000)
             self.bus_opened.emit()
@@ -139,8 +145,12 @@ class DashboardWindow(QMainWindow):
 
         central_widget = QWidget()
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(30, 20, 40, 30)
-
+        main_layout.setContentsMargins(
+            CONTENT_MARGIN_LEFT,
+            CONTENT_MARGIN_TOP,
+            CONTENT_MARGIN_RIGHT,
+            CONTENT_MARGIN_BOTTOM
+            )
         # ---- Top row: speedometer (center) + drive mode (right) ----
         top_row = QHBoxLayout()
 
@@ -193,10 +203,14 @@ class DashboardWindow(QMainWindow):
         self.last_motor_rx = time.monotonic() # update the last received time for motor stats
         self.motor_stale = False # reset the stale flag since we just received a message
         # Updating GUI
-        self.lbl_speed_val.setText(f"{speed:.0f}")
+        self.speed_val.setText(f"{speed:.0f}")
+        self.speed_error.setText("")
         self.lbl_temp_val.setText(f"{temp}°C")
-        self.lbl_temp_val.setStyleSheet("color: " + COLOR_THERMAL + ";")
         self.throttle_value.setText(f"{throttle}%")
+        # set normal colors after potential errors
+        self.speed_val.setStyleSheet("color: " + COLOR_THERMAL + ";")
+        self.lbl_temp_val.setStyleSheet("color: " + COLOR_THERMAL + ";")
+        self.throttle_value.setStyleSheet("color: " + COLOR_MUTED + ";")
         # In local test mode the M key owns the mode display, so ignore CAN's
         if not LOCAL_MODE_TEST and mode != self.mode:
             self.set_mode(mode)
@@ -208,6 +222,7 @@ class DashboardWindow(QMainWindow):
         self.last_battery_rx = time.monotonic() # update the last received time for battery stats
         self.battery_stale = False # reset the stale flag since we just received a message
         # Updating GUI
+        self.bat_error.setText("")
         self.progress_soc.setFormat("%p%") # resets the format to percentage
         self.progress_soc.setValue(soc)
 
@@ -267,28 +282,34 @@ class DashboardWindow(QMainWindow):
 
     #----------------- UI Block Builders -----------------
     def build_error_block(self):
-            error_block = QVBoxLayout()
-    
-            self.error_value = QLabel("")
-            self.error_value.setFont(QFont("Courier", 14))
-            self.error_value.setStyleSheet("color: " + COLOR_ERROR + ";")
-            self.error_value.setWordWrap(True)
-    
-            error_block.addWidget(self.error_value)
-            return error_block
+        error_block = QVBoxLayout()
+
+        self.error_value = QLabel("")
+        self.error_value.setFont(QFont("Courier", 14))
+        self.error_value.setStyleSheet("color: " + COLOR_ERROR + ";")
+        self.error_value.setWordWrap(True)
+
+        error_block.addWidget(self.error_value)
+        return error_block
     
     def build_speed_block(self):
         speed_block = QVBoxLayout()
-        self.lbl_speed_val = QLabel("0")
-        self.lbl_speed_val.setFont(QFont("sans-serif", 90, QFont.Weight.Bold))
-        self.lbl_speed_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.speed_val = QLabel("0")
+        self.speed_val.setFont(QFont("sans-serif", 90, QFont.Weight.Bold))
+        self.speed_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.speed_error = QLabel("")
+        self.speed_error.setFont(QFont("Courier", 14))
+        self.speed_error.setStyleSheet("color: " + COLOR_ERROR + ";")
+        self.speed_error.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl_speed_unit = QLabel("MPH")
         lbl_speed_unit.setFont(QFont("sans-serif", 16))
         lbl_speed_unit.setStyleSheet("color: " + COLOR_MUTED + ";")
         lbl_speed_unit.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        speed_block.addWidget(self.lbl_speed_val)
+        speed_block.addWidget(self.speed_val)
+        speed_block.addWidget(self.speed_error)
         speed_block.addWidget(lbl_speed_unit)
         return speed_block
 
@@ -319,8 +340,13 @@ class DashboardWindow(QMainWindow):
         self.progress_soc.setRange(0, 100)
         self.progress_soc.setValue(100)
 
+        self.bat_error = QLabel("")
+        self.bat_error.setFont(QFont("Courier", 14))
+        self.bat_error.setStyleSheet("color: " + COLOR_ERROR + ";")
+
         battery_block.addWidget(lbl_bat)
         battery_block.addWidget(self.progress_soc)
+        battery_block.addWidget(self.bat_error)
         return battery_block
 
     def build_thermal_block(self):
@@ -378,15 +404,17 @@ class DashboardWindow(QMainWindow):
             
     #----------------- No Data Handlers -----------------
     def show_motor_no_data(self):
-        self.lbl_speed_val.setText("--")
-        self.lbl_temp_val.setText("--°C")
-        self.lbl_temp_val.setStyleSheet("color: " + COLOR_MUTED + ";")
-        self.throttle_value.setText("--%")
+        # set text colors to show stale
+        self.speed_val.setStyleSheet("color: " + COLOR_STALE + ";")
+        self.throttle_value.setStyleSheet("color: " + COLOR_STALE + ";")
+        self.lbl_temp_val.setStyleSheet("color: " + COLOR_STALE + ";")
+        self.speed_error.setText("ERR: Motor Data Stale") # set error text
         self.set_mode(-1) # unknown mode, shows "--" in grey
 
     def show_battery_no_data(self):
         self.progress_soc.setValue(0)
-        self.progress_soc.setFormat("--")
+        self.bat_error.setText("ERR: Battery SOC Stale")
+        #self.progress_soc.setFormat("--")
         #self.progress_soc.setTextVisible(True)
         #self.progress_soc.setStyleSheet("color: " + COLOR_MUTED + ";")
         
