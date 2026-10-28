@@ -20,12 +20,10 @@ M:  Toggle mode             Switches drive mode of the car (Normal, ECO, SPORT)
 3:  Both silent	            Everything blanks.
 4:  0.3 s motor gap	        Display does not blank (under the 0.5 s timeout).
 5:  0.8 s motor gap	        Blanks, then recovers on its own.
-6:  Malformed frame	        Worker thread dies, the error label appears, and the watchdog blanks everything.
+6:  Malformed frame	        No visible effect, (regression test)
 7:  Restart worker	        Data resumes.
 8:  Toggle_mode_source      Switches where the mode comes from (CAN vs test key)
-
-
-
+9:  Toggle_bus_failure      Error shows and data stop, toggle again and data should restart
 
 """
 # (speed mph, soc %, motor temp C, throttle %, mode)
@@ -149,6 +147,20 @@ def main():
         bus.send(can.Message(arbitration_id=ID_MOTOR_STATS,
                              data=[0x01, 0x02], is_extended_id=False))
 
+    real_bus_cls = can.interface.Bus
+
+    def toggle_bus_failure():
+        if can.interface.Bus is real_bus_cls:
+            def broken(*a, **k):
+                raise OSError("simulated bus failure")
+            can.interface.Bus = broken
+            print("[FAULT] bus open will fail; restarting worker")
+        else:
+            can.interface.Bus = real_bus_cls
+            print("[FAULT] bus restored; restarting worker")
+        dash.worker.stop()      # ends the current thread
+        dash.worker.start()
+
     def toggle_mode_source():
         dashmod.LOCAL_MODE_TEST = not dashmod.LOCAL_MODE_TEST
         print(f"[TEST] mode source: {'M key' if dashmod.LOCAL_MODE_TEST else 'CAN'}")
@@ -168,7 +180,8 @@ def main():
         "5": lambda: drop("motor_until", 0.8),       # long gap, should blank, then recover
         "6": send_malformed,                         # kills the worker thread
         "7": restart_worker,
-        "8": toggle_mode_source
+        "8": toggle_mode_source,
+        "9": toggle_bus_failure
     }
     for key, fn in KEYS.items():
         QShortcut(QKeySequence(key), dash).activated.connect(fn)
