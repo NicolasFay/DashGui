@@ -39,7 +39,7 @@ COLOR_TITLE = "#8A8A9F"
 COLOR_MUTED = "#707080"
 COLOR_THERMAL = "#FF5555"
 COLOR_ERROR = "#FF0000"
-COLOR_STALE = "#FFC400"
+COLOR_STALE = "#F9E130"
 
 SCREEN_WIDTH = 480
 SCREEN_HEIGHT = 320
@@ -52,7 +52,7 @@ CONTENT_MARGIN_BOTTOM = 20
 # While testing on the virtual bus, press M to cycle modes locally.
 # Set to False once the real mode comes in over CAN.
 LOCAL_MODE_TEST = True
-DEBUG_BORDERS = True
+DEBUG_BORDERS = False
 
 
 class CANDashboardWorker(QThread):
@@ -101,8 +101,7 @@ class CANDashboardWorker(QThread):
         except Exception as e:
             # Any failure (bus won't open, bad frame, etc.) ends the thread
             # and is reported to the GUI as a string.
-            self.error_raised.emit("CAN FAULT")
-            print(f"CAN FAULT: {str(e)}", file=sys.stderr)
+            self.error_raised.emit(f"{type(e).__name__}: {e}")
         finally:
             if bus:
                 bus.shutdown()
@@ -229,6 +228,8 @@ class DashboardWindow(QMainWindow):
     @pyqtSlot(str)
     def handle_error(self, err_msg):
         self.error_value.setText(f"{err_msg}")
+        self.schedule_retry()
+        print(f"CAN FAULT: {str(err_msg)}", file=sys.stderr)
 
     @pyqtSlot()
     def clear_error(self):
