@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QLabel, QProgressBar, QVBoxLayout, QHBoxLayout)
 from PyQt6.QtGui import QFont
 import time
+from external_watchdog import sd_notify, watchdog_interval_ms
 
 # CAN bus configuration
 # 'virtual' is python-can's in-process test bus; swap for 'socketcan' (and a
@@ -22,9 +23,11 @@ values are placeholders, and the timeout should be roughly
 ID_MOTOR_STATS = 0x100
 ID_BATTERY_STATS = 0x101
 
+# TimeOut and Stall Times for Sensors, Software auto restarts, and external watchdog
 MOTOR_TIMEOUT_S = 0.5     # placeholder
 BATTERY_TIMEOUT_S = 2.0   # placeholder
 RETRY_DELAY_MS = 2000 
+WORKER_STALL_S = 1.0     # worker loop must tick at least this often
 
 # Drive modes: value -> (label, color)
 # The numeric values are what arrives on the bus; the tuple is what we display.
@@ -55,7 +58,7 @@ LOCAL_MODE_TEST = True
 DEBUG_BORDERS = False
 
 
-class CANDashboardWorker(QThread):
+class CANDashboardWorker(QThread): # Worker
     """Background thread that reads CAN frames and forwards decoded values.
  
     CAN reads block, so they run off the GUI thread. The worker never touches
@@ -70,8 +73,10 @@ class CANDashboardWorker(QThread):
     def __init__(self):
         super().__init__()
         self.running = False
+        self.heartbeat = time.monotonic()
 
     def run(self):
+        self.heartbeat = time.monotonic()
         self.running = True
         bus = None
 
@@ -80,6 +85,7 @@ class CANDashboardWorker(QThread):
             self.bus_opened.emit()
 
             while self.running:
+                self.heartbeat = time.monotonic() # loop is still running
                 # Short timeout so the loop can notice running=False quickly
                 message = bus.recv(timeout=0.05)
                 if message is None:
@@ -111,7 +117,7 @@ class CANDashboardWorker(QThread):
         self.wait()
 
 
-class DashboardWindow(QMainWindow):
+class DashboardWindow(QMainWindow): # GUI Thread
     def __init__(self):
         super().__init__()
         self.mode = MODE_NORMAL
@@ -137,6 +143,11 @@ class DashboardWindow(QMainWindow):
         self.worker.error_raised.connect(self.handle_error)
         self.worker.bus_opened.connect(self.clear_error)
         self.worker.start()
+
+        # external watchdog timer connection
+        self.sd_timer = QTimer(self)
+        self.sd_timer.timeout.connect(self.ping_watchdog)
+        self.sd_timer.start(watchdog_interval_ms())
 
     def init_ui(self):
         self.setWindowTitle("EV Digital Instrument Cluster")
@@ -245,6 +256,7 @@ class DashboardWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Stop the CAN thread cleanly before the window closes."""
+        sd_notify("STOPPING=1") # notify external watchdog
         self.closing = True
         self.worker.stop()
         event.accept()
@@ -280,6 +292,15 @@ class DashboardWindow(QMainWindow):
             self.schedule_retry()      # thread hasn't finished yet, check again later
         else:
             self.worker.start()
+
+    def worker_healthy(self):
+        if not self.worker.isRunning():
+            return True      # dead or retrying: the dashboard already shows CAN FAULT
+        return time.monotonic() - self.worker.heartbeat < WORKER_STALL_S
+
+    def ping_watchdog(self):
+        if self.worker_healthy():
+            sd_notify("WATCHDOG=1")
 
     #----------------- UI Block Builders -----------------
     def build_error_block(self):
@@ -426,4 +447,5 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     dash = DashboardWindow()
     dash.show()
+    sd_notify("READY=1") # ping external watchdog that it is ready
     sys.exit(app.exec())
