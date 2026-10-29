@@ -24,7 +24,7 @@ M:  Toggle mode             Switches drive mode of the car (Normal, ECO, SPORT)
 7:  Restart worker	        Data resumes.
 8:  Toggle_mode_source      Switches where the mode comes from (CAN vs test key)
 9:  Toggle_bus_failure      Error shows and data stop, toggle again and data should restart
-
+0:  Software stalls         Stalls software for 5s, should restart on its own
 """
 # (speed mph, soc %, motor temp C, throttle %, mode)
 CASES = [
@@ -181,7 +181,8 @@ def main():
         "6": send_malformed,                         # kills the worker thread
         "7": restart_worker,
         "8": toggle_mode_source,
-        "9": toggle_bus_failure
+        "9": toggle_bus_failure,
+        "0": lambda: time.sleep(5),                  # freezes the GUI thread
     }
     for key, fn in KEYS.items():
         QShortcut(QKeySequence(key), dash).activated.connect(fn)
