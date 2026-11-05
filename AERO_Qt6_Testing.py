@@ -13,19 +13,18 @@ from external_watchdog import sd_notify, watchdog_interval_ms
 CAN_INTERFACE = 'virtual'
 CAN_CHANNEL = 'dashboard_test'
 
-'''
-TODO: Find out how often the motor controller and BMS actually send 0x100 and 0x101. 
-values are placeholders, and the timeout should be roughly 
-3-5x the real period so one dropped frame doesnt blank the display.
-'''
-
 # Arbitration IDs of the messages this dashboard listens for
 ID_MOTOR_STATS = 0x100
 ID_BATTERY_STATS = 0x101
 
 # TimeOut and Stall Times for Sensors, Software auto restarts, and external watchdog
-MOTOR_TIMEOUT_S = 0.5     # placeholder
-BATTERY_TIMEOUT_S = 2.0   # placeholder
+'''
+TODO: Find out how often the motor controller and BMS actually send 0x100 and 0x101. 
+values are placeholders, and the timeout should be roughly 
+3-5x the real period so one dropped frame doesnt blank the display.
+'''
+MOTOR_TIMEOUT_S = 0.5     # <<<placeholder
+BATTERY_TIMEOUT_S = 2.0   # <<<placeholder
 RETRY_DELAY_MS = 2000 
 WORKER_STALL_S = 1.0     # worker loop must tick at least this often
 
@@ -68,6 +67,11 @@ class CANDashboardWorker(QThread): # Worker
     bus_opened = pyqtSignal()
     motor_updated = pyqtSignal(float, int, int, int)   # speed, temp, throttle, mode
     battery_updated = pyqtSignal(int)                  # soc
+    #TODO Need battery voltage
+    #TODO Need Battery cell data (min and max voltage, temperatures)
+    #TODO Need instantaneous current draw from the accumulator
+    #TODO Need motor controller voltage
+    #TODO Need Current State of precharge Delays 
     error_raised = pyqtSignal(str)
 
     def __init__(self):
