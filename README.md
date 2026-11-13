@@ -10,8 +10,8 @@ Using an Ethernet to USB-C Connection to wire into the Pi
 
 * SSH into the pi by typing into a terminal on your computer `ssh aero@raspberrypi.local`
     * answer yes to fingerprinting and enter the password to connect
-* if this times out, try unplugging and replugging into the pi
-* if you get this message trying to ssh into the pi:
+* If this times out (takes a while or cannot find the Pi), try unplugging and replugging into the Pi
+* If you get this message trying to ssh into the Pi:
     ```text
     njfay@ip0af51d24 ~ % ssh aero@raspberrypi.local
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -28,16 +28,16 @@ Using an Ethernet to USB-C Connection to wire into the Pi
     Host key for raspberrypi.local has changed and you have requested strict checking.
     Host key verification failed.
     ```
-    * enter into the terminal `ssh-keygen -R raspberrypi.local` to clear old rpi host keys that are cached
+    * Enter into the terminal `ssh-keygen -R raspberrypi.local` to clear old rpi host keys that are cached
 
 
 ### Connecting Pi to Internet
 
 To get the Pi on wifi turn on your phones hotspot
 
-* enable the setting **Maximize Compatibility**
-* keep your phone screen open on the hotspot setting
-* type into the ssh'ed terminal `sudo nmcli device wifi connect "Your_iPhone_Name" password "Your_Hotspot_Password"`
+* Enable the setting **Maximize Compatibility**
+* Keep your phone screen open on the hotspot setting
+* Type into the ssh'd terminal `sudo nmcli device wifi connect "Your_iPhone_Name" password "Your_Hotspot_Password"`
 
 ## Software Maintenence
 
@@ -45,9 +45,9 @@ To get the Pi on wifi turn on your phones hotspot
 
 If you ever change the location of the software in the Pi (what directory it is in), or make changes to how the external watchdog works then you want to update the service file and reload it. To do so:
 
-* update the file and run this to reload it
+* Update the file and run this while ssh'd into the Pi
     * `sudo systemctl daemon-reload`
-    * and then `sudo systemctl restart dashboard.service`
+    * And then `sudo systemctl restart dashboard.service`
 
 ## Virtual Environment Setup
 
@@ -59,5 +59,5 @@ Have python installed on your machine and in the command terminal:
 2) Activate Environment
     * Mac: `source .venv/bin/activate`
     * Windows: `.venv\Scripts\activate.bat`
-3) install required libraries to run
+3) Install required libraries to run
     * `pip install -r requirements.txt`
