@@ -4,17 +4,60 @@
 
 * Model: Raspberry Pi 3 Model B+
 
+### Connecting to Pi
+
+Using an Ethernet to USB-C Connection to wire into the Pi
+
+* SSH into the pi by typing into a terminal on your computer `ssh aero@raspberrypi.local`
+    * answer yes to fingerprinting and enter the password to connect
+* if this times out, try unplugging and replugging into the pi
+* if you get this message trying to ssh into the pi:
+    ```text
+    njfay@ip0af51d24 ~ % ssh aero@raspberrypi.local
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+    Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+    It is also possible that a host key has just been changed.
+    The fingerprint for the ED25519 key sent by the remote host is
+    SHA256:jOkgpVCrH8CudHGnBYLwIpOxzpGH0rneoowDbUUFwq8.
+    Please contact your system administrator.
+    Add correct host key in /Users/njfay/.ssh/known_hosts to get rid of this message.
+    Offending ECDSA key in /Users/njfay/.ssh/known_hosts:12
+    Host key for raspberrypi.local has changed and you have requested strict checking.
+    Host key verification failed.
+    ```
+    * enter into the terminal `ssh-keygen -R raspberrypi.local` to clear old rpi host keys that are cached
+
+
+### Connecting Pi to Internet
+
+To get the Pi on wifi turn on your phones hotspot
+
+* enable the setting **Maximize Compatibility**
+* keep your phone screen open on the hotspot setting
+* type into the ssh'ed terminal `sudo nmcli device wifi connect "Your_iPhone_Name" password "Your_Hotspot_Password"`
+
+## Software Maintenence
+
+### External Watchdog Service File
+
+If you ever change the location of the software in the Pi (what directory it is in), or make changes to how the external watchdog works then you want to update the service file and reload it. To do so:
+
+* update the file and run this to reload it
+    * `sudo systemctl daemon-reload`
+    * and then `sudo systemctl restart dashboard.service`
+
 ## Virtual Environment Setup
 
-1) Have python installed on your machine
+Have python installed on your machine and in the command terminal:
 
-In the command terminal
-
-2) Create virtual environment by running 
+1) Create virtual environment by running 
     * Mac: `python3 -m venv .venv`
     * Windows: `python -m venv .venv`
-3) Activate Environment
+2) Activate Environment
     * Mac: `source .venv/bin/activate`
     * Windows: `.venv\Scripts\activate.bat`
-4) install required libraries to run
+3) install required libraries to run
     * `pip install -r requirements.txt`
